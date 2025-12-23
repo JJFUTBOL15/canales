@@ -5,18 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>XDXX - Canales XXX en Vivo 24/7</title>
 
-  <!-- Volvemos a Video.js (más estable para estos streams) -->
   <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
   <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
   <style>
-    body { 
-      margin:0; 
-      background:#000; 
-      color:#eee; 
-      font-family:system-ui; 
-    }
+    body { margin:0; background:#000; color:#eee; font-family:system-ui; }
     #age-gate {
       position:fixed; inset:0;
       background:rgba(0,0,0,0.98);
@@ -45,7 +39,7 @@
       transition:all .3s;
     }
     #enter { background:#ff0066; color:white; }
-    #enter:hover { background:#e6005c; transform:scale(1.08); box-shadow:0 0 40px #ff0066aa; }
+    #enter:hover { background:#e6005c; transform:scale(1.08); }
     #exit { background:#222; color:#ccc; }
     #exit:hover { background:#333; color:white; }
 
@@ -85,7 +79,26 @@
       font-size:1.1rem;
       text-align:center;
     }
-    .active { border-color:#ff0066 !important; box-shadow:0 0 40px #ff0066cc !important; transform:scale(1.08); }
+    .fav-btn {
+      position:absolute;
+      top:8px;
+      right:8px;
+      background:rgba(0,0,0,0.7);
+      border:none;
+      color:#fff;
+      font-size:1.6rem;
+      width:36px;
+      height:36px;
+      border-radius:50%;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      transition:all .2s;
+    }
+    .fav-btn.active { color:#ff0066; background:rgba(255,0,102,0.3); }
+    .fav-btn:hover { transform:scale(1.2); }
+    .active-channel { border-color:#ff0066 !important; box-shadow:0 0 40px #ff0066cc !important; transform:scale(1.08); }
     #loading { text-align:center; color:#ff0066; font-size:1.8rem; margin:3rem 0; }
   </style>
 </head>
@@ -102,7 +115,7 @@
   </div>
 </div>
 
-<!-- CONTENIDO -->
+<!-- CONTENIDO PRINCIPAL -->
 <div id="main-content">
   <h1>XDXX - Canales en Vivo</h1>
 
@@ -125,6 +138,83 @@ const player = videojs('my-video', {
 const categoriesContainer = document.getElementById('categories');
 const loadingDiv = document.getElementById('loading');
 
+// Manejo de favoritos (guardados en localStorage)
+let favorites = JSON.parse(localStorage.getItem('xdxxFavorites')) || [];
+
+// Función para guardar favoritos
+function saveFavorites() {
+  localStorage.setItem('xdxxFavorites', JSON.stringify(favorites));
+}
+
+// Función para renderizar sección de favoritos
+function renderFavorites() {
+  const favSection = document.createElement('div');
+  favSection.id = 'favorites-section';
+
+  if (favorites.length === 0) return; // No mostrar si no hay favoritos
+
+  const title = document.createElement('h2');
+  title.className = 'category-title';
+  title.textContent = '⭐ Tus Favoritos';
+  favSection.appendChild(title);
+
+  const grid = document.createElement('div');
+  grid.className = 'channel-grid';
+
+  favorites.forEach(fav => {
+    const card = createChannelCard(fav, true);
+    grid.appendChild(card);
+  });
+
+  favSection.appendChild(grid);
+  categoriesContainer.prepend(favSection); // Poner al principio
+}
+
+// Crear tarjeta de canal (reutilizable)
+function createChannelCard(channel, isFav = false) {
+  const card = document.createElement('div');
+  card.className = 'channel-card';
+  card.dataset.url = channel.url; // Para identificar fácilmente
+
+  card.innerHTML = `
+    <img src="${channel.thumbnail || 'https://via.placeholder.com/260x150/111/222?text='+encodeURIComponent(channel.nombre)}" 
+         alt="${channel.nombre}" loading="lazy" onerror="this.src='https://via.placeholder.com/260x150/000/555?text=XDXX'"/>
+    <div class="title">${channel.nombre}</div>
+    <button class="fav-btn ${favorites.some(f => f.url === channel.url) ? 'active' : ''}">❤️</button>
+  `;
+
+  // Click para reproducir
+  card.addEventListener('click', (e) => {
+    if (e.target.classList.contains('fav-btn')) return; // Evitar reproducir si click en corazón
+    document.querySelectorAll('.channel-card').forEach(el => el.classList.remove('active-channel'));
+    card.classList.add('active-channel');
+    loadStream(channel.url, channel.nombre);
+  });
+
+  // Click en corazón
+  const favBtn = card.querySelector('.fav-btn');
+  favBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const index = favorites.findIndex(f => f.url === channel.url);
+    if (index === -1) {
+      favorites.push(channel);
+      favBtn.classList.add('active');
+    } else {
+      favorites.splice(index, 1);
+      favBtn.classList.remove('active');
+      // Si estamos en favoritos y se quita, remover la tarjeta
+      if (isFav) card.remove();
+    }
+    saveFavorites();
+    // Si no quedan favoritos, remover sección
+    if (favorites.length === 0 && document.getElementById('favorites-section')) {
+      document.getElementById('favorites-section').remove();
+    }
+  });
+
+  return card;
+}
+
 async function loadChannels() {
   try {
     const res = await fetch('https://canales-ngmh.vercel.app/liv3xdxx.json');
@@ -132,6 +222,9 @@ async function loadChannels() {
     const data = await res.json();
 
     loadingDiv.style.display = 'none';
+
+    // Renderizar favoritos primero (si existen)
+    renderFavorites();
 
     data.categorias.forEach(cat => {
       const title = document.createElement('h2');
@@ -143,27 +236,14 @@ async function loadChannels() {
       grid.className = 'channel-grid';
 
       cat.canales.forEach(channel => {
-        const card = document.createElement('div');
-        card.className = 'channel-card';
-        card.innerHTML = `
-          <img src="${channel.thumbnail || 'https://via.placeholder.com/260x150/111/222?text='+encodeURIComponent(channel.nombre)}" 
-               alt="${channel.nombre}" loading="lazy" onerror="this.src='https://via.placeholder.com/260x150/000/555?text=XDXX'"/>
-          <div class="title">${channel.nombre}</div>
-        `;
-
-        card.addEventListener('click', () => {
-          document.querySelectorAll('.channel-card').forEach(el => el.classList.remove('active'));
-          card.classList.add('active');
-          loadStream(channel.url, channel.nombre);
-        });
-
+        const card = createChannelCard(channel);
         grid.appendChild(card);
       });
 
       categoriesContainer.appendChild(grid);
     });
   } catch (err) {
-    loadingDiv.innerHTML = `<p style="color:#ff0066;">⚠️ Error al cargar canales. Refresca la página o prueba más tarde.</p>`;
+    loadingDiv.innerHTML = `<p style="color:#ff0066;">⚠️ Error al cargar canales. Refresca la página.</p>`;
     console.error(err);
   }
 }
@@ -175,7 +255,7 @@ function loadStream(url, name) {
     const hls = new Hls();
     hls.loadSource(url);
     hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, function() {
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
       player.play().catch(e => console.log('Autoplay bloqueado', e));
       player.poster(`https://via.placeholder.com/1280x720/000/222?text=${encodeURIComponent(name)}`);
     });
@@ -183,7 +263,7 @@ function loadStream(url, name) {
     player.src({ type: 'application/x-mpegURL', src: url });
     player.play().catch(() => {});
   } else {
-    alert('Tu navegador no soporta HLS. Usa Chrome, Firefox o Safari.');
+    alert('Tu navegador no soporta HLS. Usa Chrome/Firefox/Safari.');
   }
 }
 
